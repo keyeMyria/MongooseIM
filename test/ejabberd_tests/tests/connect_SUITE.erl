@@ -42,6 +42,7 @@ all() ->
             [{group, negative},
              {group, pre_xmpp_1_0},
              {group, starttls},
+             {group, feature_order},
              {group, tls},
              {group, ciphers_default},
              {group, 'node2_supports_DHE-RSA-AES256-SHA_only'}]
@@ -53,6 +54,7 @@ groups() ->
                      invalid_stream_namespace]},
      {pre_xmpp_1_0, [], [pre_xmpp_1_0_stream]},
      {starttls, test_cases()},
+     {feature_order, [tls_compression_authenticate, tls_authenticate_compression]},
      {tls, generate_tls_vsn_tests()},
      {ciphers_default, [], [clients_can_connect_with_advertised_ciphers,
                             'clients_can_connect_with_DHE-RSA-AES256-SHA',
@@ -99,6 +101,10 @@ init_per_group(tls, Config) ->
     JoeSpec2 = {?SECURE_USER, lists:keystore(ssl, 1, JoeSpec, {ssl, true})},
     NewUsers = lists:keystore(?SECURE_USER, 1, Users, JoeSpec2),
     lists:keystore(escalus_users, 1, Config, {escalus_users, NewUsers});
+init_per_group(feature_order, Config) ->
+    config_ejabberd_node_tls(Config, fun mk_value_for_compression_config_pattern/0),
+    ejabberd_node_utils:restart_application(ejabberd),
+    Config;
 init_per_group(ciphers_default, Config) ->
     config_ejabberd_node_tls(Config, fun mk_value_for_tls_config_pattern/0),
     ejabberd_node_utils:restart_application(ejabberd),
@@ -288,6 +294,9 @@ config_ejabberd_node_tls(Config, Fun) ->
 mk_value_for_tls_config_pattern() ->
     {tls_config, "{certfile, \"" ++ ?CERT_FILE ++ "\"}, tls,"}.
 
+mk_value_for_compression_config_pattern() ->
+    {tls_config, "{certfile, \"" ++ ?CERT_FILE ++ "\"}, starttls_required,  {zlib, 10000},"}.
+
 mk_value_for_starttls_required_config_pattern() ->
     {tls_config, "{certfile, \"" ++ ?CERT_FILE ++ "\"}, starttls_required,"}.
 
@@ -338,3 +347,28 @@ default_context(To) ->
 node2_rpccall(Module, Function, Args) ->
     Node = ct:get_config(ejabberd2_node),
     rpc:call(Node, Module, Function, Args).
+
+%% Different feature negotiation order
+tls_compression_authenticate(Config) ->
+    %% Given
+    UserSpec = escalus_users:get_userspec(Config, ?SECURE_USER),
+    ConnetctionSteps = [start_stream, stream_features, maybe_use_ssl, maybe_use_compression, authenticate],
+    %% then
+    {ok, Conn, _, _} = escalus_connection:start(UserSpec, ConnetctionSteps),
+    % when
+    Compress = Conn#client.compress,
+    SSL = Conn#client.ssl,
+    ?assert(false =/= Compress),
+    ?assert(false =/= SSL).
+
+tls_authenticate_compression(Config) ->
+    %% Given
+    UserSpec = escalus_users:get_userspec(Config, ?SECURE_USER),
+    ConnetctionSteps = [start_stream, stream_features, maybe_use_ssl, authenticate, maybe_use_compression],
+    %% then
+    {ok, Conn, _, _} = escalus_connection:start(UserSpec, ConnetctionSteps),
+    % when
+    Compress = Conn#client.compress,
+    SSL = Conn#client.ssl,
+    ?assert(false =/= Compress),
+    ?assert(false =/= SSL).
