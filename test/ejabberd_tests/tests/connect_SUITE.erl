@@ -26,8 +26,7 @@
 -include_lib("stdlib/include/ms_transform.hrl").
 -define(assert_equal(E, V), (
     [ct:fail("ASSERT EQUAL~n\tExpected ~p~n\tValue ~p~n", [(E), (V)])
-     || (E) =/= (V)]
-)).
+     || (E) =/= (V)])).
 -define(SECURE_USER, secure_joe).
 -define(CERT_FILE, "priv/ssl/fake_server.pem").
 -define(TLS_VERSIONS, ["tlsv1", "tlsv1.1", "tlsv1.2"]).
@@ -57,11 +56,13 @@ groups() ->
                      invalid_stream_namespace]},
      {pre_xmpp_1_0, [], [pre_xmpp_1_0_stream]},
      {starttls, test_cases()},
-     {feature_order, [tls_authenticate,
+     {feature_order, [stream_features_test,
+                      tls_authenticate,
                       tls_compression,
                       tls_compression_authenticate,
                       tls_authenticate_compression,
-                      stream_features_test]},
+                      auth_compression_bind_session,
+                      auth_bind_compression_session]},
      {tls, generate_tls_vsn_tests()},
      {ciphers_default, [], [clients_can_connect_with_advertised_ciphers,
                             'clients_can_connect_with_DHE-RSA-AES256-SHA',
@@ -382,6 +383,7 @@ has_feature(Feature, FeatureList) ->
     {_, Value} = lists:keyfind(Feature, 1, FeatureList),
     Value.
 
+%% tests for different order feature negotiation
 tls_compression_authenticate(Config) ->
     %% Given
     UserSpec = escalus_users:get_userspec(Config, ?SECURE_USER),
@@ -427,3 +429,25 @@ tls_compression(Config) ->
     SSL = Conn#client.ssl,
     ?assert(false =/= Compress),
     ?assert(false =/= SSL).
+
+auth_compression_bind_session(Config) ->
+    %% Given
+    UserSpec = escalus_users:get_userspec(Config, ?SECURE_USER),
+    ConnetctionSteps = [start_stream, stream_features, maybe_use_ssl,
+                        authenticate, maybe_use_compression, bind, session],
+    %% then
+    {ok, Conn, _, _} = escalus_connection:start(UserSpec, ConnetctionSteps),
+    % when
+    Compress = Conn#client.compress,
+    ?assert(false =/= Compress).
+
+auth_bind_compression_session(Config) ->
+    %% Given
+    UserSpec = escalus_users:get_userspec(Config, ?SECURE_USER),
+    ConnetctionSteps = [start_stream, stream_features, maybe_use_ssl,
+                        authenticate, bind, maybe_use_compression, session],
+    %% then
+    {ok, Conn, _, _} = escalus_connection:start(UserSpec, ConnetctionSteps),
+    % when
+    Compress = Conn#client.compress,
+    ?assert(false =/= Compress).
